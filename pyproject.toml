@@ -1,0 +1,19 @@
+[project]
+name = "pymio"
+version = "0.1.0"
+description = "基于 PIL 和 opencv-python 封装的图像处理工具 / 模板引擎"
+authors = [
+    {name = "Machinacanis", email = "hf4minecraft@163.com"},
+]
+dependencies = ["pillow>=11.1.0", "opencv-python>=4.11.0.86", "numpy>=2.2.3"]
+requires-python = ">=3.13"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[tool.pdm]
+distribution = true
