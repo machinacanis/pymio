@@ -1,22 +1,17 @@
 import timeit
 
 from pymio import const
-from pymio.image import MioImage
+from pymio.image import MioCutEffect, MioImage
 
 
 def main():
-    img = (
-        MioImage("./mio.png")
-        .resize(1.5, interpolation=const.CV2_INTER_LANCZOS4)
-        .render()
-    )
-    img.save("mio_resized.png")
-    img.show()
+    img = MioImage("./mio.png")
+    img.add_effect(MioCutEffect([300, 300], "pil"))
 
 
 if __name__ == "__main__":
     # 代码开始时间
-    total = 1
+    total = 100
     timer = timeit.Timer(stmt=main)
     execution_time = timer.timeit(number=total)  # 执行代码n次
     print(f"代码执行平均时间：{execution_time / total * 1000} ms")

@@ -74,26 +74,31 @@ class MioImage(MioObject):
             try:
                 self._original_image = open(img_path, "r")  # 打开文件
                 self._original_image_path = img_path  # 记录文件路径
+                self.width, self.height = self._original_image.size  # 更新图像尺寸
             except Exception as e:
                 raise e
         elif isinstance(img, Image):
             # 传入了 PIL.Image 对象
             self._original_image = img
+            self.width, self.height = self._original_image.size  # 更新图像尺寸
         elif isinstance(img, ndarray):
             # 传入了 ndarray 对象，尝试转换
             try:
                 self._original_image = cv2_image_to_pil(img)
+                self.width, self.height = self._original_image.size  # 更新图像尺寸
             except Exception as e:
                 raise e
         elif isinstance(img, bytes):
             # 传入了 bytes 对象，尝试转换
             try:
                 self._original_image = open(BytesIO(img))
+                self.width, self.height = self._original_image.size  # 更新图像尺寸
             except Exception as e:
                 raise e
         elif isinstance(img, BytesIO):
             # 传入了 BytesIO 对象
             self._original_image = open(img)
+            self.width, self.height = self._original_image.size  # 更新图像尺寸
         else:
             raise MioTypeUnexpectedError(
                 "str | PathLike | Image | ndarray | bytes | BytesIO", type(img)
@@ -247,6 +252,15 @@ class MioImage(MioObject):
 
     """ 添加效果器 """
 
+    def add_effect(self, effect: "MioEffect"):
+        """
+        添加任意效果器
+        :param effect: 效果器对象
+        :return: self
+        """
+        self.effects.append(effect)
+        return self
+
     def resize(
         self,
         target: tuple[float, float] | list[float] | float | tuple[int, int] | list[int],
@@ -254,7 +268,7 @@ class MioImage(MioObject):
         resize_method: str = "cv2",
     ):
         """
-        添加缩放效果器
+        通过内置的缩放效果器实现图像缩放
         :param args: 缩放参数，可以是比例、宽高
         :return: self
         """
@@ -281,7 +295,16 @@ class MioImage(MioObject):
         return self
 
     def render(self):
+        """
+        渲染图像，执行这个方法后会将所有效果器应用到图像上并生成结果
+
+        :return: self
+        """
         # 复制原始图像到内容层
+        assert self._original_image is not None, (
+            "No image data to render."
+        )  # 检查是否有图像数据
+
         self.image_center = self._original_image
 
         # 应用效果器
@@ -299,6 +322,9 @@ class MioImage(MioObject):
         self.has_rendered = True
         self.rendered_times += 1
         return self
+
+    def output():
+        pass
 
 
 class MioEffect:
@@ -321,7 +347,7 @@ class MioResizeEffect(MioEffect):
     """
     pyMio 的缩放效果器，用于对图像进行缩放处理
 
-    默认使用opencv-python的resize方法进行缩放
+    默认使用opencv-python的resize方法进行缩放，opencv-python的resize方法速度更快，效果更好，也可以设置pillow的resize方法
     """
 
     def __init__(
@@ -334,6 +360,8 @@ class MioResizeEffect(MioEffect):
         interpolation: int = CV2_INTER_LINEAR,
         resize_method: str = "cv2",
     ):
+        super().__init__()
+
         self.resize_method: str = "cv2"  # 缩放方法，可选值为 cv2 或 pil
         self.is_ratio_mode: bool = True  # 是否启用按比例缩放模式
         # 目标宽度和高度
@@ -374,85 +402,171 @@ class MioResizeEffect(MioEffect):
             raise ValueError("Image not opened.")
         # 检测是否开启按比例缩放模式
         if self.is_ratio_mode:
+            # 如果都是1.0，直接返回
+            if self.width_ratio == 1.0 and self.height_ratio == 1.0:
+                return True
+            # 如果都是0.0或小于0.0，抛出异常
+            elif self.width_ratio <= 0.0 or self.height_ratio <= 0.0:
+                raise ValueError("Invalid ratio value.")
             if self.resize_method == "cv2":
-                # 如果都是1.0，直接返回
-                if self.width_ratio == 1.0 and self.height_ratio == 1.0:
-                    return True
-                # 如果都是0.0或小于0.0，抛出异常
-                elif self.width_ratio <= 0.0 or self.height_ratio <= 0.0:
-                    raise ValueError("Invalid ratio value.")
-                else:
-                    # 通过resize的fx和fy参数进行调整
-                    print(self.width_ratio, self.height_ratio)
-                    image.image_center = cv2_image_to_pil(
-                        cv2.resize(
-                            pil_image_to_cv2(image.image_center),
-                            (0, 0),
-                            fx=self.width_ratio,
-                            fy=self.height_ratio,
-                            interpolation=self.interpolation,
-                        )
+                # 通过resize的fx和fy参数进行调整
+                print(self.width_ratio, self.height_ratio)
+                image.image_center = cv2_image_to_pil(
+                    cv2.resize(
+                        pil_image_to_cv2(image.image_center),
+                        (0, 0),
+                        fx=self.width_ratio,
+                        fy=self.height_ratio,
+                        interpolation=self.interpolation,
                     )
-                    image.x, image.y = image.image_center.size  # 更新图像尺寸
-                    return True
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
             elif self.resize_method == "pil":
                 # PIL库的resize方法不支持按比例缩放，需要手动计算
                 # 获取当前图像尺寸
                 width, height = image.image_center.size
-                # 检测合理性
-                if width <= 0 or height <= 0:
-                    raise ValueError("Invalid image size.")
-                elif self.width_ratio <= 0.0 or self.height_ratio <= 0.0:
-                    raise ValueError("Invalid ratio value.")
-                elif self.width_ratio == 1.0 and self.height_ratio == 1.0:
-                    return True
                 # 计算目标尺寸
                 target_width = int(width * self.width_ratio)
                 target_height = int(height * self.height_ratio)
                 image.image_center = image.image_center.resize(
                     (target_width, target_height), resample=self.interpolation
                 )
-                image.x, image.y = image.image_center.size  # 更新图像尺寸
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
                 return True
             else:
                 raise ValueError("Invalid resize method.")  # 无效的缩放方法
         else:
+            # 检测数值合理性
+            if self.target_width <= 0 or self.target_height <= 0:
+                raise ValueError("Invalid target size.")
+            # 如果目标尺寸和原始尺寸一致，直接返回
+            elif (
+                self.target_width == image.width and self.target_height == image.height
+            ):
+                return True
             if self.resize_method == "cv2":
-                # 检测数值合理性
-                if self.target_width <= 0 or self.target_height <= 0:
-                    raise ValueError("Invalid target size.")
-                # 如果目标尺寸和原始尺寸一致，直接返回
-                elif (
-                    self.target_width == image.width
-                    and self.target_height == image.height
-                ):
-                    return True
-                else:
-                    image.image_center = cv2_image_to_pil(
-                        cv2.resize(
-                            pil_image_to_cv2(image.image_center),
-                            (self.target_width, self.target_height),
-                            interpolation=self.interpolation,
-                        )
-                    )
-                    image.x, image.y = image.image_center.size  # 更新图像尺寸
-                    return True
-            elif self.resize_method == "pil":
-                # 检测数值合理性
-                if self.target_width <= 0 or self.target_height <= 0:
-                    raise ValueError("Invalid target size.")
-                # 如果目标尺寸和原始尺寸一致，直接返回
-                elif (
-                    self.target_width == image.width
-                    and self.target_height == image.height
-                ):
-                    return True
-                else:
-                    image.image_center = image.image_center.resize(
+                image.image_center = cv2_image_to_pil(
+                    cv2.resize(
+                        pil_image_to_cv2(image.image_center),
                         (self.target_width, self.target_height),
-                        resample=self.interpolation,
+                        interpolation=self.interpolation,
                     )
-                    image.x, image.y = image.image_center.size
-                    return True
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
+            elif self.resize_method == "pil":
+                image.image_center = image.image_center.resize(
+                    (self.target_width, self.target_height),
+                    resample=self.interpolation,
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
             else:
                 raise ValueError("Invalid resize method.")
+
+
+class MioCutEffect(MioEffect):
+    """
+    pyMio 的裁剪效果器，用于对图像进行裁剪处理
+
+    默认使用opencv-python的裁剪方法进行裁剪，实际上两个库的裁剪方法和速度没什么太大的区别，默认即可
+    """
+
+    def __init__(
+        self,
+        target: tuple[int, int] | list[int] | float | tuple[float, float] | list[float],
+        cut_method: str = "cv2",  # 截取方法，可选值为 cv2 或 pil
+    ):
+        super().__init__()
+
+        self.is_ratio_mode: bool = True  # 是否启用按比例缩放模式
+        self.target_width: int = 0
+        self.target_height: int = 0
+        self.width_ratio: float = 1.0
+        self.height_ratio: float = 1.0
+        self.cut_method: str = "cv2"
+
+        # 根据传入的参数检查类型并初始化缩放效果器
+        if isinstance(target, float):
+            self.width_ratio = target
+            self.height_ratio = target
+            self.is_ratio_mode = True
+        elif isinstance(target, list) or isinstance(target, tuple):
+            # 检测其是否为比例模式
+            if len(target) == 2:
+                if isinstance(target[0], float) and isinstance(target[1], float):
+                    self.width_ratio = target[0]
+                    self.height_ratio = target[1]
+                    self.is_ratio_mode = True
+                elif isinstance(target[0], int) and isinstance(target[1], int):
+                    self.target_width = target[0]
+                    self.target_height = target[1]
+                    self.is_ratio_mode = False  # 关闭比例模式
+            elif len(target) == 1:
+                raise ValueError("Invalid target value.")
+        else:
+            raise ValueError("Invalid target value.")
+
+        self.cut_method = cut_method
+
+    def apply(self, image: MioImage) -> bool:
+        if image.image_center is None:  # 图像未打开
+            raise ValueError("Image not opened.")
+        if self.is_ratio_mode:
+            # 合理性判断
+            if self.width_ratio == 1.0 and self.height_ratio == 1.0:
+                return True
+            elif (
+                self.width_ratio <= 0.0
+                or self.height_ratio <= 0.0
+                or self.width_ratio >= 1.0
+                or self.height_ratio >= 1.0
+            ):
+                raise ValueError("Invalid ratio value.")
+            if self.cut_method == "cv2":
+                cv2_img = pil_image_to_cv2(image.image_center)
+                image.image_center = cv2_image_to_pil(
+                    cv2_img[
+                        : int(image.height * self.height_ratio),
+                        : int(image.width * self.width_ratio),
+                    ]
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
+            elif self.cut_method == "pil":
+                image.image_center = image.image_center.crop(
+                    (
+                        0,
+                        0,
+                        int(image.width * self.width_ratio),
+                        int(image.height * self.height_ratio),
+                    )
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
+            else:
+                raise ValueError("Invalid cut method.")
+        else:
+            if self.target_width <= 0 or self.target_height <= 0:
+                raise ValueError("Invalid target size.")
+            if self.cut_method == "cv2":
+                image.image_center = cv2_image_to_pil(
+                    pil_image_to_cv2(image.image_center)[
+                        : self.target_height, : self.target_width
+                    ]
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
+            elif self.cut_method == "pil":
+                image.image_center = image.image_center.crop(
+                    (0, 0, self.target_width, self.target_height)
+                )
+                image.width, image.height = image.image_center.size  # 更新图像尺寸
+                return True
+            else:
+                raise ValueError("Invalid cut method.")
+
+
+class MioExpandEffect(MioCutEffect):
+    pass
