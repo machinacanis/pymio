@@ -1,10 +1,8 @@
-from pymio.image import MioImage
-
-
 class MioObject:
     """
     MioObject 是一个基础图形对象类，用于存储图形对象的基本属性。
     """
+
     def __init__(self):
         # 坐标系属性
         # x, y 是对象的左上角（基点）坐标，width, height 是对象的宽度和高度，单位为像素（px）
@@ -19,8 +17,12 @@ class MioObject:
         self.height_offset: int = 0  # 高度偏移值
 
         # 对象属性
-        self.name: str = ""  # 对象名称，用于标识对象，设置了对象名时可以使用名称过滤器进行过滤
-        self.tags: list[str] = []  # 对象标签，用于标识对象，设置了对象标签时可以使用标签过滤器进行过滤
+        self.name: str = (
+            ""  # 对象名称，用于标识对象，设置了对象名时可以使用名称过滤器进行过滤
+        )
+        self.tags: list[
+            str
+        ] = []  # 对象标签，用于标识对象，设置了对象标签时可以使用标签过滤器进行过滤
         self.object_type: str = ""  # 对象类型，用于标识对象的类型，在子类初始化时应被设定为具体的对象类型，可以用于类型过滤器
 
     def get_size(self):
@@ -157,18 +159,27 @@ class MioObject:
         获取对象的偏移后的左下角坐标
         :return: x, y
         """
-        return self.x + self.x_offset, self.y + self.height + self.y_offset + self.height_offset
+        return (
+            self.x + self.x_offset,
+            self.y + self.height + self.y_offset + self.height_offset,
+        )
 
     def get_offseted_right_top(self):
         """
         获取对象的偏移后的右上角坐标
         :return: x, y
         """
-        return self.x + self.width + self.x_offset + self.width_offset, self.y + self.y_offset
+        return (
+            self.x + self.width + self.x_offset + self.width_offset,
+            self.y + self.y_offset,
+        )
 
     def get_offseted_right_bottom(self):
         """
         获取对象的偏移后的右下角坐标
         :return: x, y
         """
-        return self.x + self.width + self.x_offset + self.width_offset, self.y + self.height + self.y_offset + self.height_offset
+        return (
+            self.x + self.width + self.x_offset + self.width_offset,
+            self.y + self.height + self.y_offset + self.height_offset,
+        )

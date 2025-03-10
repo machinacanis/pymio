@@ -9,9 +9,10 @@ class MioLayer:
 
     图层没有坐标属性，但是有尺寸属性，通过设置dynamic属性可以让图层自动调整尺寸（自动尺寸图层无法组合）
     """
+
     def __init__(self):
         # 图层属性
-        self.name = 'layer' # 图层名称
+        self.name = "layer"  # 图层名称
         self.dynamic: bool = False  # 是否启用动态尺寸，启用后图层会自动调整尺寸
         self.width: int = 0  # 图层宽度
         self.height: int = 0  # 图层高度
@@ -19,4 +20,6 @@ class MioLayer:
         self.alpha: int = 255  # 图层透明度
 
         # 图层对象
-        self.objects: list[MioObject] = []  # 存储所有的图形对象，渲染时会按照添加的顺序由后往前渲染
+        self.objects: list[
+            MioObject
+        ] = []  # 存储所有的图形对象，渲染时会按照添加的顺序由后往前渲染

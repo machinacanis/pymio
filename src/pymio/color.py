@@ -7,7 +7,10 @@ class MioColor:
 
     可以直接传入BGRA颜色值或HEX字符串来初始化颜色对象
     """
-    def __init__(self, b: int = 0, g: int = 0, r: int = 0, a: int = 255, hex_str: str = ""):
+
+    def __init__(
+        self, b: int = 0, g: int = 0, r: int = 0, a: int = 255, hex_str: str = ""
+    ):
         self.B = 0  # 蓝色通道
         self.G = 0  # 绿色通道
         self.R = 0  # 红色通道

@@ -6,21 +6,25 @@ from pathlib import Path
 from numpy import ndarray
 
 from .color import MioColor
-from .const import BLACK
+from .const import BLACK, CV2_INTER_LINEAR
 from .exception import MioTypeUnexpectedError
 from .object import MioObject
 
-from PIL.Image import Image, new, open
+from PIL.Image import Image, open
 import tempfile
 
 from .utils import cv2_image_to_pil, pil_image_to_cv2
+import cv2
 
 
 class MioImage(MioObject):
     """
     pyMio 的智能图像对象，封装了基础图像处理的功能
     """
-    def __init__(self):
+
+    def __init__(
+        self, img: str | PathLike | Image | ndarray | bytes | BytesIO | None = None
+    ):
         super().__init__()
         # 基本属性
         self.object_type = "image"  # 覆盖 pyMio 对象类型
@@ -30,20 +34,28 @@ class MioImage(MioObject):
 
         # 图像数据
         # 图像数据分为三层，分别对应背景、内容、前景
-        # 在图像被渲染时，会依次执行效果器，并最终得到背景、内容、前景三层数据，之后合并为最终图像（合并完成后会清空三层数据以节省内存）
-        self._orignal_image: Image | None = None  # 原始图像数据
-        self._image_bottom: list[Image] | None = None  # 背景数据
-        self._image_center: list[Image] | None = None  # 内容数据
-        self._image_top: list[Image] | None = None  # 前景数据
-        self._result: Image | None = None  # 图像合并结果
+        # 在图像被渲染时，会首先将原始图像数据复制到内容数据层中，然后依次执行效果器
+        # 最终得到背景、内容、前景三层数据，之后合并为最终图像（合并完成后会清空三层数据以节省内存）
+        self._original_image: Image | None = None  # 原始图像数据
+        self.image_bottom: list[Image] | None = None  # 背景数据
+        self.image_center: Image | None = None  # 内容数据
+        self.image_top: list[Image] | None = None  # 前景数据
+        self.result: Image | None = None  # 图像合并结果
 
         self._original_image_path: Path | None = None  # 图像原始路径
-        self.background_color: MioColor = BLACK  # 背景颜色，默认为黑色，这个背景颜色设定仅在不使用图层时生效
+        self.background_color: MioColor = (
+            BLACK  # 背景颜色，默认为黑色，这个背景颜色设定仅在不使用图层时生效
+        )
         self.rotation = 0  # 旋转角度，单位为度
         self.alpha = 255  # 透明度，默认为不透明
-        self.effects = []  # 效果器
+        self.effects: list["MioEffect"] = []  # 效果器列表
+
+        # 初始化时自动加载图像数据
+        if img is not None:
+            self.open(img)
 
     """ 读写操作 """
+
     def open(self, img: str | PathLike | Image | ndarray | bytes | BytesIO | None):
         """
         读取图像数据
@@ -60,31 +72,33 @@ class MioImage(MioObject):
                 raise FileNotFoundError(f"File not found: {img}")  # 文件不存在
             # 尝试读取文件
             try:
-                self._orignal_image = open(img_path, "r")  # 打开文件
+                self._original_image = open(img_path, "r")  # 打开文件
                 self._original_image_path = img_path  # 记录文件路径
             except Exception as e:
                 raise e
         elif isinstance(img, Image):
             # 传入了 PIL.Image 对象
-            self._orignal_image = img
+            self._original_image = img
         elif isinstance(img, ndarray):
             # 传入了 ndarray 对象，尝试转换
             try:
-                self._orignal_image = cv2_image_to_pil(img)
+                self._original_image = cv2_image_to_pil(img)
             except Exception as e:
                 raise e
         elif isinstance(img, bytes):
             # 传入了 bytes 对象，尝试转换
             try:
-                self._orignal_image = open(BytesIO(img))
+                self._original_image = open(BytesIO(img))
             except Exception as e:
                 raise e
         elif isinstance(img, BytesIO):
             # 传入了 BytesIO 对象
-            self._orignal_image = open(img)
+            self._original_image = open(img)
         else:
-            raise MioTypeUnexpectedError("str | PathLike | Image | ndarray | bytes | BytesIO", type(img))
-        return self # 返回自身，支持链式调用
+            raise MioTypeUnexpectedError(
+                "str | PathLike | Image | ndarray | bytes | BytesIO", type(img)
+            )
+        return self  # 返回自身，支持链式调用
 
     def save(self, path: str | PathLike):
         """
@@ -92,36 +106,45 @@ class MioImage(MioObject):
         :param path: 保存路径
         :return: None
         """
-        # 检查原始图像数据是否存在
-        if self._orignal_image is None:
-            raise ValueError("No image data to save.")
+        # 检查结果是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to save.")
         # 保存图像
-        i = self.copy().rasterisation()
-        i.save(path)
+        self.result.save(path)
 
     def to_bytes(self) -> bytes:
         """
         将图像数据转换为字节数据
         :return: 图像数据
         """
-        # 检查图像数据是否存在
-        if self._orignal_image is None:
-            raise ValueError("No image data to convert.")
-        # 转换
-        i = self.copy().rasterisation()
-        return i._orignal_image.tobytes()
+        # 检查结果是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to convert.")
+        # 转换成字节数据
+        return self.result.tobytes()
 
     def to_base64(self) -> str:
         """
         将图像数据转换为 base64 字符串
         :return: base64 字符串
         """
-        # 检查图像数据是否存在
-        if self._orignal_image is None:
-            raise ValueError("No image data to convert.")
+        # 检查结果是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to convert.")
         # 转换成字节数据
-        i = self.copy().rasterisation()
-        byte_data = i.to_bytes()
+        byte_data = self.to_bytes()
         # 编码为 base64 字符串
         return base64.b64encode(byte_data).decode("utf-8")
 
@@ -130,13 +153,16 @@ class MioImage(MioObject):
         将图像数据转换为 BytesIO 对象
         :return: BytesIO 对象
         """
-        # 检查图像数据是否存在
-        if self._orignal_image is None:
-            raise ValueError("No image data to convert.")
+        # 检查结果是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to convert.")
         # 转换
         byte_io = BytesIO()
-        i = self.copy().rasterisation()
-        i._orignal_image.save(byte_io)
+        self.save(byte_io)  # 保存到 BytesIO 对象
         return byte_io
 
     def to_image(self) -> Image:
@@ -144,23 +170,29 @@ class MioImage(MioObject):
         获取图像数据
         :return: PIL.Image 对象
         """
-        # 检查图像数据是否存在
-        if self._orignal_image is None:
-            raise ValueError("No image data to convert.")
-        i = self.copy().rasterisation()
-        return i._orignal_image
+        # 检查结果是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to convert.")
+        return self.result
 
     def to_cv2(self) -> ndarray:
         """
         将图像数据转换为 cv2 对象
         :return: cv2 对象
         """
-        # 检查图像数据是否存在
-        if self._orignal_image is None:
-            raise ValueError("No image data to convert.")
+        # 检查结果是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to convert.")
         # 转换
-        i = self.copy().rasterisation()
-        return pil_image_to_cv2(i._orignal_image)
+        return pil_image_to_cv2(self.result)
 
     def get_original_path(self, enable_tmp: bool = False) -> Path | None:
         """
@@ -169,7 +201,7 @@ class MioImage(MioObject):
         :return: 图像完整路径
         """
         # 首先检测是否有图像数据
-        if self._orignal_image is None:
+        if self._original_image is None:
             raise ValueError("No image data to get path.")
         # 如果有图像数据，检查是否有路径
         if self._original_image_path is not None:
@@ -177,9 +209,8 @@ class MioImage(MioObject):
         # 如果没有路径，检查是否需要临时文件
         if enable_tmp:
             # 生成临时文件
-            _, temp_file_path = tempfile.mkstemp(suffix='.png')
-            i = self.copy().rasterisation()
-            i.save(temp_file_path)
+            _, temp_file_path = tempfile.mkstemp(suffix=".png")
+            self._original_image.save(temp_file_path)
             return Path(temp_file_path)
 
     def copy(self):
@@ -190,8 +221,23 @@ class MioImage(MioObject):
         new_image = self
         return new_image
 
+    def show(self):
+        """
+        显示图像
+        """
+        # 检查图像数据是否存在
+        if self.result is None:
+            # 尝试渲染
+            self.render()
+            # 检查是否渲染成功
+            if self.result is None:
+                raise ValueError("No image data to show.")
+        # 显示图像
+        self.result.show()
+
     """ 魔术方法 """
-    def __add__(self, other: 'MioImage'):
+
+    def __add__(self, other: "MioImage"):
         """
         重载加法运算符，将两个对象合并为一个对象
         :param other: 另一个对象
@@ -199,9 +245,33 @@ class MioImage(MioObject):
         """
         return self
 
-    """ 图像处理 """
+    """ 添加效果器 """
+
+    def resize(
+        self,
+        target: tuple[float, float] | list[float] | float | tuple[int, int] | list[int],
+        interpolation: int = CV2_INTER_LINEAR,
+        resize_method: str = "cv2",
+    ):
+        """
+        添加缩放效果器
+        :param args: 缩放参数，可以是比例、宽高
+        :return: self
+        """
+        self.effects.append(
+            MioResizeEffect(
+                target,
+                interpolation=interpolation,
+                resize_method=resize_method,
+            ),
+        )  # 添加效果器
+        return self
 
     """ 绘制 """
+
+    def paste():
+        pass
+
     def rasterisation(self):
         """
         栅格化图像，将图像属性全部应用到图像数据上，并重置图像属性
@@ -211,6 +281,178 @@ class MioImage(MioObject):
         return self
 
     def render(self):
+        # 复制原始图像到内容层
+        self.image_center = self._original_image
+
+        # 应用效果器
+        for effect in self.effects:
+            effect.apply(self)
+        # 渲染完成后叠加三层图像
+        # TODO: 叠加图像
+        self.result = self.image_center
+        # 清空渲染缓存
+        self.image_bottom = None
+        self.image_center = None
+        self.image_top = None
+
+        # 更新渲染状态
+        self.has_rendered = True
+        self.rendered_times += 1
         return self
 
 
+class MioEffect:
+    """
+    pyMio 的效果器基类，继承这个类可以实现自定义的效果器
+
+    效果器可以对图像进行处理，例如添加滤镜、添加特效等
+
+    在 MioImage 对象上调用render()方法进行渲染时，会自动遍历效果器并通过依赖注入的方式调用效果器的apply()方法
+    """
+
+    def __init__(self):
+        self.effect_name: str = ""  # 特效名称
+
+    def apply(self, image: MioImage) -> bool:
+        pass
+
+
+class MioResizeEffect(MioEffect):
+    """
+    pyMio 的缩放效果器，用于对图像进行缩放处理
+
+    默认使用opencv-python的resize方法进行缩放
+    """
+
+    def __init__(
+        self,
+        target: tuple[float, float]
+        | list[float]
+        | float
+        | tuple[int, int]
+        | list[int] = 1.0,
+        interpolation: int = CV2_INTER_LINEAR,
+        resize_method: str = "cv2",
+    ):
+        self.resize_method: str = "cv2"  # 缩放方法，可选值为 cv2 或 pil
+        self.is_ratio_mode: bool = True  # 是否启用按比例缩放模式
+        # 目标宽度和高度
+        self.target_width: int = 0  # 目标宽度
+        self.target_height: int = 0  # 目标高度
+        # 缩放比例，当启用按比例缩放模式时，会忽略目标宽度和高度，使用缩放比例进行缩放
+        self.width_ratio: float = 1.0  # 宽度缩放比例
+        self.height_ratio: float = 1.0  # 高度缩放比例
+        # 其他参数
+        self.interpolation: int = 0  # 插值方法，注意：cv2 和 pil 的插值方法是不同的
+
+        # 根据传入的参数检查类型并初始化缩放效果器
+        if isinstance(target, float):
+            self.width_ratio = target
+            self.height_ratio = target
+            self.is_ratio_mode = True
+        elif isinstance(target, list) or isinstance(target, tuple):
+            # 检测其是否为比例模式
+            if len(target) == 2:
+                if isinstance(target[0], float) and isinstance(target[1], float):
+                    self.width_ratio = target[0]
+                    self.height_ratio = target[1]
+                    self.is_ratio_mode = True
+                elif isinstance(target[0], int) and isinstance(target[1], int):
+                    self.target_width = target[0]
+                    self.target_height = target[1]
+                    self.is_ratio_mode = False  # 关闭比例模式
+            elif len(target) == 1:
+                raise ValueError("Invalid target value.")
+        else:
+            raise ValueError("Invalid target value.")
+
+        self.interpolation = interpolation
+        self.resize_method = resize_method
+
+    def apply(self, image: MioImage) -> bool:
+        if image.image_center is None:  # 图像未打开
+            raise ValueError("Image not opened.")
+        # 检测是否开启按比例缩放模式
+        if self.is_ratio_mode:
+            if self.resize_method == "cv2":
+                # 如果都是1.0，直接返回
+                if self.width_ratio == 1.0 and self.height_ratio == 1.0:
+                    return True
+                # 如果都是0.0或小于0.0，抛出异常
+                elif self.width_ratio <= 0.0 or self.height_ratio <= 0.0:
+                    raise ValueError("Invalid ratio value.")
+                else:
+                    # 通过resize的fx和fy参数进行调整
+                    print(self.width_ratio, self.height_ratio)
+                    image.image_center = cv2_image_to_pil(
+                        cv2.resize(
+                            pil_image_to_cv2(image.image_center),
+                            (0, 0),
+                            fx=self.width_ratio,
+                            fy=self.height_ratio,
+                            interpolation=self.interpolation,
+                        )
+                    )
+                    image.x, image.y = image.image_center.size  # 更新图像尺寸
+                    return True
+            elif self.resize_method == "pil":
+                # PIL库的resize方法不支持按比例缩放，需要手动计算
+                # 获取当前图像尺寸
+                width, height = image.image_center.size
+                # 检测合理性
+                if width <= 0 or height <= 0:
+                    raise ValueError("Invalid image size.")
+                elif self.width_ratio <= 0.0 or self.height_ratio <= 0.0:
+                    raise ValueError("Invalid ratio value.")
+                elif self.width_ratio == 1.0 and self.height_ratio == 1.0:
+                    return True
+                # 计算目标尺寸
+                target_width = int(width * self.width_ratio)
+                target_height = int(height * self.height_ratio)
+                image.image_center = image.image_center.resize(
+                    (target_width, target_height), resample=self.interpolation
+                )
+                image.x, image.y = image.image_center.size  # 更新图像尺寸
+                return True
+            else:
+                raise ValueError("Invalid resize method.")  # 无效的缩放方法
+        else:
+            if self.resize_method == "cv2":
+                # 检测数值合理性
+                if self.target_width <= 0 or self.target_height <= 0:
+                    raise ValueError("Invalid target size.")
+                # 如果目标尺寸和原始尺寸一致，直接返回
+                elif (
+                    self.target_width == image.width
+                    and self.target_height == image.height
+                ):
+                    return True
+                else:
+                    image.image_center = cv2_image_to_pil(
+                        cv2.resize(
+                            pil_image_to_cv2(image.image_center),
+                            (self.target_width, self.target_height),
+                            interpolation=self.interpolation,
+                        )
+                    )
+                    image.x, image.y = image.image_center.size  # 更新图像尺寸
+                    return True
+            elif self.resize_method == "pil":
+                # 检测数值合理性
+                if self.target_width <= 0 or self.target_height <= 0:
+                    raise ValueError("Invalid target size.")
+                # 如果目标尺寸和原始尺寸一致，直接返回
+                elif (
+                    self.target_width == image.width
+                    and self.target_height == image.height
+                ):
+                    return True
+                else:
+                    image.image_center = image.image_center.resize(
+                        (self.target_width, self.target_height),
+                        resample=self.interpolation,
+                    )
+                    image.x, image.y = image.image_center.size
+                    return True
+            else:
+                raise ValueError("Invalid resize method.")
