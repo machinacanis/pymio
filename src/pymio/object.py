@@ -1,3 +1,6 @@
+from pymio.image import MioImage
+
+
 class MioObject:
     """
     MioObject 是一个基础图形对象类，用于存储图形对象的基本属性。
@@ -12,8 +15,8 @@ class MioObject:
         self.y_offset: int = 0  # y 偏移量，当对象被绘制到画布上时，会根据偏移量进行偏移，用于实现阴影、描边等可能影响实际位置的效果
         self.width: int = 0  # 坐标盒宽度
         self.height: int = 0  # 坐标盒高度
-        self.full_width: int = 0  # 完整宽度
-        self.full_height: int = 0  # 完整高度
+        self.width_offset: int = 0  # 宽度偏移值（溢出值）
+        self.height_offset: int = 0  # 高度偏移值
 
         # 对象属性
         self.name: str = ""  # 对象名称，用于标识对象，设置了对象名时可以使用名称过滤器进行过滤
@@ -27,12 +30,12 @@ class MioObject:
         """
         return self.width, self.height
 
-    def get_full_size(self):
+    def get_offseted_size(self):
         """
         获取对象的完整尺寸
         :return: full_width, full_height
         """
-        return self.full_width, self.full_height
+        return self.width + self.width_offset, self.height + self.height_offset
 
     def get_position(self):
         """
@@ -135,7 +138,12 @@ class MioObject:
         获取对象的偏移后的边界框，即左上角和右下角的坐标
         :return: (x1, y1, x2, y2)
         """
-        return self.x + self.x_offset, self.y + self.y_offset, self.x + self.width + self.x_offset, self.y + self.height + self.y_offset
+        return (
+            self.x + self.x_offset,
+            self.y + self.y_offset,
+            self.x + self.width + self.x_offset + self.width_offset,
+            self.y + self.height + self.y_offset + self.height_offset,
+        )
 
     def get_offseted_left_top(self):
         """
@@ -149,19 +157,18 @@ class MioObject:
         获取对象的偏移后的左下角坐标
         :return: x, y
         """
-        return self.x + self.x_offset, self.y + self.height + self.y_offset
+        return self.x + self.x_offset, self.y + self.height + self.y_offset + self.height_offset
 
     def get_offseted_right_top(self):
         """
         获取对象的偏移后的右上角坐标
         :return: x, y
         """
-        return self.x + self.width + self.x_offset, self.y + self.y_offset
+        return self.x + self.width + self.x_offset + self.width_offset, self.y + self.y_offset
 
     def get_offseted_right_bottom(self):
         """
         获取对象的偏移后的右下角坐标
         :return: x, y
         """
-        return self.x + self.width + self.x_offset, self.y + self.height + self.y_offset
-    
+        return self.x + self.width + self.x_offset + self.width_offset, self.y + self.height + self.y_offset + self.height_offset

@@ -19,3 +19,6 @@ def cv2_image_to_pil(image: numpy.ndarray) -> Image:
     :return:
     """
     return Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGRA2RGBA))  # 注意是将BGRA转换为RGBA的格式，这样才能正常保存透明度数据
+
+def new_background():
+    pass
